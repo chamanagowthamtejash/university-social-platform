@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF RAG Chatbot - Sasi Institute</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+    <!-- Main Container -->
+    <div class="chat-wrapper">
+        <div class="chat-container">
+
+            <!-- Header -->
+            <div class="chat-header">
+                <div class="header-left">
+                    <div class="logo-icon">
+                        <i class="fas fa-graduation-cap"></i>
+                    </div>
+                    <div>
+                        <h1 class="header-title">PDF RAG Assistant</h1>
+                        <span class="header-subtitle">Sasi Institute of Technology & Engineering</span>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <div class="status-indicator">
+                        <span class="status-dot online"></span>
+                        <span class="status-text">Active</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Upload Section -->
+            <div class="upload-section">
+                <div class="upload-container">
+                    <div class="file-input-wrapper">
+                        <input type="file" id="pdfFile" accept=".pdf" class="file-input">
+                        <label for="pdfFile" class="file-label">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                            <span id="fileName">Choose PDF File</span>
+                        </label>
+                    </div>
+                    <button onclick="uploadPDF()" class="btn-upload">
+                        <i class="fas fa-upload"></i> Upload
+                    </button>
+                </div>
+                <div id="status" class="status-message"></div>
+            </div>
+
+            <!-- Chat Box -->
+            <div class="chat-body" id="chat-box">
+                <div class="welcome-message">
+                    <div class="welcome-icon">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <h3>Welcome to PDF RAG Assistant!</h3>
+                    <p>Upload a PDF document and start asking questions about its content.</p>
+                    <div class="feature-list">
+                        <span><i class="fas fa-check-circle"></i> Intelligent Document Search</span>
+                        <span><i class="fas fa-check-circle"></i> Instant Answers</span>
+                        <span><i class="fas fa-check-circle"></i> Context-Aware Responses</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="chat-footer">
+                <div class="input-wrapper">
+                    <i class="fas fa-paperclip attachment-icon"></i>
+                    <input
+                        type="text"
+                        id="message"
+                        class="message-input"
+                        placeholder="Ask a question about the PDF..."
+                        onkeypress="if(event.key==='Enter') sendMessage()"
+                        autocomplete="off"
+                    >
+                    <button onclick="sendMessage()" class="btn-send">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+                <div class="footer-note">
+                    <i class="fas fa-shield-alt"></i> Powered by Mistral AI & Pinecone
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Spinner -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner">
+            <div class="spinner"></div>
+            <p>Processing your request...</p>
+        </div>
+    </div>
+
+    <script>
+        // ==========================
+        // Upload PDF
+        // ==========================
+
+        // Update file name display
+        document.getElementById('pdfFile').addEventListener('change', function(e) {
+            const fileName = e.target.files[0]?.name || 'Choose PDF File';
+            document.getElementById('fileName').textContent = fileName;
+        });
+
+        async function uploadPDF() {
+            let fileInput = document.getElementById("pdfFile");
+
+            if (fileInput.files.length === 0) {
+                showStatus("Please choose a PDF file.", "error");
+                return;
+            }
+
+            let formData = new FormData();
+            formData.append("pdf", fileInput.files[0]);
+
+            showStatus("Uploading PDF... Please wait.", "loading");
+            showLoading(true);
+
+            try {
+                const response = await fetch("/upload", {
+                    method: "POST",
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.status === "success") {
+                    showStatus("✅ " + data.message, "success");
+                    document.getElementById('fileName').textContent = fileInput.files[0].name;
+
+                    // Add system message to chat
+                    addMessageToChat("system", `📄 PDF "${fileInput.files[0].name}" uploaded successfully! You can now ask questions.`);
+                } else {
+                    showStatus("❌ " + data.message, "error");
+                }
+            } catch (error) {
+                showStatus("❌ Error uploading PDF. Please try again.", "error");
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // ==========================
+        // Chat Functions
+        // ==========================
+
+        async function sendMessage() {
+            let input = document.getElementById("message");
+            let message = input.value.trim();
+
+            if (message === "") return;
+
+            // Add user message to chat
+            addMessageToChat("user", message);
+            input.value = "";
+
+            showLoading(true);
+
+            try {
+                const response = await fetch("/chat", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ message: message })
+                });
+
+                const data = await response.json();
+                addMessageToChat("bot", data.response);
+            } catch (error) {
+                addMessageToChat("bot", "❌ Error: Unable to get response. Please try again.");
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function addMessageToChat(type, content) {
+            let chatBox = document.getElementById("chat-box");
+
+            // Remove welcome message if it exists
+            const welcomeMsg = chatBox.querySelector('.welcome-message');
+            if (welcomeMsg) {
+                welcomeMsg.remove();
+            }
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+
+            if (type === 'user') {
+                avatar.innerHTML = '<i class="fas fa-user"></i>';
+            } else if (type === 'bot') {
+                avatar.innerHTML = '<i class="fas fa-robot"></i>';
+            } else {
+                avatar.innerHTML = '<i class="fas fa-info-circle"></i>';
+            }
+
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+
+            const textDiv = document.createElement('div');
+            textDiv.className = 'message-text';
+
+            // Handle markdown-like formatting
+            let formattedContent = content;
+            if (type === 'bot') {
+                // Convert newlines to <br>
+                formattedContent = content.replace(/\n/g, '<br>');
+                // Convert bullet points
+                formattedContent = formattedContent.replace(/- /g, '• ');
+            }
+
+            textDiv.innerHTML = formattedContent;
+
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'message-time';
+            timeDiv.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            contentDiv.appendChild(textDiv);
+            contentDiv.appendChild(timeDiv);
+
+            messageDiv.appendChild(avatar);
+            messageDiv.appendChild(contentDiv);
+
+            chatBox.appendChild(messageDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById("status");
+            statusDiv.textContent = message;
+            statusDiv.className = `status-message ${type}`;
+        }
+
+        function showLoading(show) {
+            const overlay = document.getElementById('loadingOverlay');
+            if (show) {
+                overlay.classList.add('active');
+            } else {
+                overlay.classList.remove('active');
+            }
+        }
+
+        // Enable send on Enter key
+        document.getElementById('message').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    </script>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
